@@ -1,0 +1,49 @@
+# Compiled binaries / libraries
+*.dll       filter=lfs diff=lfs merge=lfs -text
+*.exe       filter=lfs diff=lfs merge=lfs -text
+*.lib       filter=lfs diff=lfs merge=lfs -text
+*.so        filter=lfs diff=lfs merge=lfs -text
+*.so.*      filter=lfs diff=lfs merge=lfs -text
+*.a         filter=lfs diff=lfs merge=lfs -text
+*.dylib     filter=lfs diff=lfs merge=lfs -text
+*.obj       filter=lfs diff=lfs merge=lfs -text
+*.o         filter=lfs diff=lfs merge=lfs -text
+*.pdb       filter=lfs diff=lfs merge=lfs -text
+*.exp       filter=lfs diff=lfs merge=lfs -text
+
+# CUDA / GPU artifacts
+*.fatbin    filter=lfs diff=lfs merge=lfs -text
+*.cubin     filter=lfs diff=lfs merge=lfs -text
+*.ptx       filter=lfs diff=lfs merge=lfs -text
+
+# Documentation (large PDFs shipped with SDKs)
+*.pdf       filter=lfs diff=lfs merge=lfs -text
+*.chm       filter=lfs diff=lfs merge=lfs -text
+
+# Archives
+*.zip       filter=lfs diff=lfs merge=lfs -text
+*.7z        filter=lfs diff=lfs merge=lfs -text
+*.tar       filter=lfs diff=lfs merge=lfs -text
+*.tar.gz    filter=lfs diff=lfs merge=lfs -text
+*.tgz       filter=lfs diff=lfs merge=lfs -text
+
+# Media / test assets
+*.mp4       filter=lfs diff=lfs merge=lfs -text
+*.mov       filter=lfs diff=lfs merge=lfs -text
+*.mkv       filter=lfs diff=lfs merge=lfs -text
+*.h264      filter=lfs diff=lfs merge=lfs -text
+*.h265      filter=lfs diff=lfs merge=lfs -text
+*.hevc      filter=lfs diff=lfs merge=lfs -text
+*.yuv       filter=lfs diff=lfs merge=lfs -text
+
+# Force text for source / build files under vendored SDK trees
+*.h         text
+*.hpp       text
+*.c         text
+*.cpp       text
+*.cu        text
+*.cuh       text
+*.txt       text
+*.md        text
+*.cmake     text
+CMakeLists.txt text

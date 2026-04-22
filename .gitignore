@@ -1,0 +1,91 @@
+# CMake build directories
+build/
+build-*/
+cmake-build-*/
+out/
+_deps/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+
+# Ninja / Make
+.ninja_deps
+.ninja_log
+build.ninja
+rules.ninja
+Makefile
+
+# Visual Studio / MSBuild
+.vs/
+*.vcxproj.user
+*.suo
+*.sln.docstates
+x64/
+Win32/
+Debug/
+Release/
+RelWithDebInfo/
+MinSizeRel/
+
+# JetBrains (CLion / Rider / etc.)
+.idea/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Compiled objects / binaries produced by local builds
+*.o
+*.obj
+*.exe
+*.dll
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.so
+*.so.*
+*.a
+*.dylib
+
+# CUDA intermediates
+*.i
+*.ii
+*.gpu
+*.cudafe*
+*.fatbin.c
+*.module_id
+*.ptx
+*.cubin
+*.fatbin
+
+# OS cruft
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Editor swap / backup files
+*.swp
+*.swo
+*~
+*.bak
+*.orig
+
+# Logs / local config
+*.log
+.env
+.env.local
+
+# Vendored SDKs — track these via Git LFS (see .gitattributes).
+# Negations must come after the ignore patterns above.
+!cuda/
+!cuda/**
+!Video_Codec_SDK_12.2.72/
+!Video_Codec_SDK_12.2.72/**

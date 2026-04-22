@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"^\\(project|option|set\\\\\\\\\\(CMAKE|install\\)\" C:/dev/streamco/OpenXR-SDK-Source/CMakeLists.txt)"
+    ]
+  }
+}

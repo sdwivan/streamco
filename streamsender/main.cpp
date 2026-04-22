@@ -126,16 +126,29 @@ int main(int argc, char** argv) {
         ComPtr<IDXGIFactory6> factory;
         ThrowIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)), "CreateDXGIFactory2");
 
-        // Pick first adapter with a display output — matches how the producer
-        // picked its adapter, so shared handles resolve on the same GPU.
+        // NVENC only runs on NVIDIA, and the shared texture (plain HEAP_FLAG_SHARED,
+        // not cross-adapter) must live on the same GPU as the encoder. Prefer an
+        // NVIDIA adapter; fall back to first-with-output only when none exists.
         ComPtr<IDXGIAdapter1> adapter;
+        ComPtr<IDXGIAdapter1> fallback;
         for (UINT i = 0;; ++i) {
             ComPtr<IDXGIAdapter1> a;
             if (factory->EnumAdapters1(i, &a) == DXGI_ERROR_NOT_FOUND) break;
-            ComPtr<IDXGIOutput> o;
-            if (SUCCEEDED(a->EnumOutputs(0, &o))) { adapter = a; break; }
+            DXGI_ADAPTER_DESC1 desc{};
+            a->GetDesc1(&desc);
+            if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;
+            if (desc.VendorId == 0x10DE) { adapter = a; break; }
+            if (!fallback) {
+                ComPtr<IDXGIOutput> o;
+                if (SUCCEEDED(a->EnumOutputs(0, &o))) fallback = a;
+            }
         }
-        if (!adapter) throw std::runtime_error("no adapter with display output");
+        if (!adapter) adapter = fallback;
+        if (!adapter) throw std::runtime_error("no suitable adapter");
+
+        DXGI_ADAPTER_DESC1 adapterDesc{};
+        adapter->GetDesc1(&adapterDesc);
+        std::wprintf(L"Adapter: %ls\n", adapterDesc.Description);
 
         ComPtr<ID3D12Device> device;
         ThrowIfFailed(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0,
@@ -150,12 +163,25 @@ int main(int argc, char** argv) {
 
         std::wprintf(L"Waiting for producer (%ls)...\n", kTextureName);
         ComPtr<ID3D12Resource> sharedTex;
+        HRESULT lastOpenErr = S_OK;
+        bool lastErrWasMismatch = false;
         while (g_running) {
             HANDLE h = nullptr;
-            if (SUCCEEDED(device->OpenSharedHandleByName(kTextureName, GENERIC_ALL, &h))) {
+            HRESULT hrName = device->OpenSharedHandleByName(kTextureName, GENERIC_ALL, &h);
+            if (SUCCEEDED(hrName)) {
                 HRESULT hr = device->OpenSharedHandle(h, IID_PPV_ARGS(&sharedTex));
                 CloseHandle(h);
                 if (SUCCEEDED(hr)) break;
+                if (hr != lastOpenErr || !lastErrWasMismatch) {
+                    std::fprintf(stderr,
+                        "producer texture exists but OpenSharedHandle failed: 0x%08lX "
+                        "(adapter mismatch? producer may be on a different GPU)\n",
+                        static_cast<unsigned long>(hr));
+                    lastOpenErr = hr;
+                    lastErrWasMismatch = true;
+                }
+            } else {
+                lastErrWasMismatch = false;
             }
             Sleep(200);
         }

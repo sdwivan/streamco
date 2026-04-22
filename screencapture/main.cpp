@@ -87,16 +87,24 @@ int main(int argc, char** argv) {
         ThrowIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)),
                       "CreateDXGIFactory2");
 
-        // Pick the first adapter that actually drives an output — on hybrid
-        // laptops the high-perf dGPU sometimes enumerates no display and
-        // DuplicateOutput would fail on it.
+        // Prefer an NVIDIA adapter so the shared texture lives on the same GPU
+        // as the downstream NVENC sender. Fall back to first-with-output when
+        // no NVIDIA GPU is present (e.g. AMD/Intel-only box). Both candidates
+        // must actually own a display output, otherwise DuplicateOutput fails.
         ComPtr<IDXGIAdapter1> adapter;
+        ComPtr<IDXGIAdapter1> fallback;
         for (UINT i = 0;; ++i) {
             ComPtr<IDXGIAdapter1> a;
             if (factory->EnumAdapters1(i, &a) == DXGI_ERROR_NOT_FOUND) break;
+            DXGI_ADAPTER_DESC1 desc{};
+            a->GetDesc1(&desc);
+            if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;
             ComPtr<IDXGIOutput> o;
-            if (SUCCEEDED(a->EnumOutputs(0, &o))) { adapter = a; break; }
+            if (FAILED(a->EnumOutputs(0, &o))) continue;
+            if (desc.VendorId == 0x10DE) { adapter = a; break; }
+            if (!fallback) fallback = a;
         }
+        if (!adapter) adapter = fallback;
         if (!adapter) throw std::runtime_error("no DXGI adapter with a display output");
 
         DXGI_ADAPTER_DESC1 adapterDesc{};
@@ -148,8 +156,12 @@ int main(int argc, char** argv) {
         std::wprintf(L"Desktop: %ux%u  format=%u\n",
                      width, height, static_cast<unsigned>(format));
 
-        // Shared D3D12 texture. ALLOW_SIMULTANEOUS_ACCESS lets a consumer read
-        // it without explicit state transitions; the fence enforces ordering.
+        // Shared D3D12 texture — cross-adapter so a sender on a different GPU
+        // (e.g. NVIDIA dGPU on a hybrid laptop whose panel is on the iGPU) can
+        // open it for NVENC. Cross-adapter requires row-major layout and
+        // forbids RENDER_TARGET/SIMULTANEOUS_ACCESS; this texture is only ever
+        // a CopyResource destination so that's fine. The fence enforces
+        // producer→consumer ordering.
         D3D12_HEAP_PROPERTIES heapProps{};
         heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
 
@@ -161,13 +173,13 @@ int main(int argc, char** argv) {
         texDesc.MipLevels        = 1;
         texDesc.Format           = format;
         texDesc.SampleDesc.Count = 1;
-        texDesc.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        texDesc.Flags            = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET
-                                 | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS;
+        texDesc.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        texDesc.Flags            = D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER;
 
         ComPtr<ID3D12Resource> sharedTex;
         ThrowIfFailed(d3d12Device->CreateCommittedResource(
-                          &heapProps, D3D12_HEAP_FLAG_SHARED,
+                          &heapProps,
+                          D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER,
                           &texDesc, D3D12_RESOURCE_STATE_COMMON,
                           nullptr, IID_PPV_ARGS(&sharedTex)),
                       "CreateCommittedResource(sharedTex)");
@@ -188,8 +200,10 @@ int main(int argc, char** argv) {
         // Shared D3D12 fence, also opened on the D3D11 side so we can signal
         // it from the duplication thread after each copy.
         ComPtr<ID3D12Fence> d3d12Fence;
-        ThrowIfFailed(d3d12Device->CreateFence(0, D3D12_FENCE_FLAG_SHARED,
-                                               IID_PPV_ARGS(&d3d12Fence)),
+        ThrowIfFailed(d3d12Device->CreateFence(
+                          0,
+                          D3D12_FENCE_FLAG_SHARED | D3D12_FENCE_FLAG_SHARED_CROSS_ADAPTER,
+                          IID_PPV_ARGS(&d3d12Fence)),
                       "CreateFence");
         HANDLE hFence = nullptr;
         ThrowIfFailed(d3d12Device->CreateSharedHandle(

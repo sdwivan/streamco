@@ -115,14 +115,32 @@ int main(int argc, char** argv) {
         ThrowIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)),
                       "CreateDXGIFactory2");
 
+        // Prefer NVIDIA so we can open shared textures produced by a consumer
+        // on the NVIDIA dGPU (e.g. streamreceiver binds to NVIDIA for NVDEC/CUDA
+        // interop). On hybrid laptops where the panel is on the iGPU, DXGI
+        // flip-model presents from the dGPU are composited to the iGPU's
+        // display by the OS, so picking NVIDIA here is safe even without a
+        // direct display output. Fall back to first-with-output otherwise.
         ComPtr<IDXGIAdapter1> adapter;
+        ComPtr<IDXGIAdapter1> fallback;
         for (UINT i = 0;; ++i) {
             ComPtr<IDXGIAdapter1> a;
             if (factory->EnumAdapters1(i, &a) == DXGI_ERROR_NOT_FOUND) break;
-            ComPtr<IDXGIOutput> o;
-            if (SUCCEEDED(a->EnumOutputs(0, &o))) { adapter = a; break; }
+            DXGI_ADAPTER_DESC1 desc{};
+            a->GetDesc1(&desc);
+            if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;
+            if (desc.VendorId == 0x10DE) { adapter = a; break; }
+            if (!fallback) {
+                ComPtr<IDXGIOutput> o;
+                if (SUCCEEDED(a->EnumOutputs(0, &o))) fallback = a;
+            }
         }
-        if (!adapter) throw std::runtime_error("no adapter with a display output");
+        if (!adapter) adapter = fallback;
+        if (!adapter) throw std::runtime_error("no suitable adapter");
+
+        DXGI_ADAPTER_DESC1 adapterDesc{};
+        adapter->GetDesc1(&adapterDesc);
+        std::wprintf(L"Adapter: %ls\n", adapterDesc.Description);
 
         ComPtr<ID3D12Device> device;
         ThrowIfFailed(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0,

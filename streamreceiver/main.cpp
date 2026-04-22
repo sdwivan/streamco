@@ -205,14 +205,26 @@ int main(int argc, char** argv) {
         ComPtr<IDXGIFactory6> factory;
         ThrowIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)),
                       "CreateDXGIFactory2");
+        // NVDEC runs on CUDA which is NVIDIA-only, and the D3D12↔CUDA interop
+        // import (cuImportExternalMemory) requires both sides on the same
+        // adapter. Prefer NVIDIA; fall back to first-with-output only when no
+        // NVIDIA GPU is present (in which case this binary can't really work).
         ComPtr<IDXGIAdapter1> adapter;
+        ComPtr<IDXGIAdapter1> fallback;
         for (UINT i = 0;; ++i) {
             ComPtr<IDXGIAdapter1> a;
             if (factory->EnumAdapters1(i, &a) == DXGI_ERROR_NOT_FOUND) break;
-            ComPtr<IDXGIOutput> o;
-            if (SUCCEEDED(a->EnumOutputs(0, &o))) { adapter = a; break; }
+            DXGI_ADAPTER_DESC1 desc{};
+            a->GetDesc1(&desc);
+            if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;
+            if (desc.VendorId == 0x10DE) { adapter = a; break; }
+            if (!fallback) {
+                ComPtr<IDXGIOutput> o;
+                if (SUCCEEDED(a->EnumOutputs(0, &o))) fallback = a;
+            }
         }
-        if (!adapter) throw std::runtime_error("no DXGI adapter with output");
+        if (!adapter) adapter = fallback;
+        if (!adapter) throw std::runtime_error("no suitable adapter");
 
         DXGI_ADAPTER_DESC1 adapterDesc{};
         adapter->GetDesc1(&adapterDesc);
@@ -281,6 +293,8 @@ int main(int argc, char** argv) {
                           sharedTex.Get(), nullptr, GENERIC_ALL,
                           kTextureName, &hTexture),
                       "CreateSharedHandle(tex)");
+        std::wprintf(L"Shared texture: name=%ls  handle=0x%p\n",
+                     kTextureName, hTexture);
 
         // --- Shared fence (D3D12 side) ---
         ComPtr<ID3D12Fence> sharedFence;
@@ -292,6 +306,8 @@ int main(int argc, char** argv) {
                           sharedFence.Get(), nullptr, GENERIC_ALL,
                           kFenceName, &hFence),
                       "CreateSharedHandle(fence)");
+        std::wprintf(L"Shared fence:   name=%ls  handle=0x%p\n",
+                     kFenceName, hFence);
 
         // --- SharedInfo mapping ---
         HANDLE hMap = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr,

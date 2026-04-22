@@ -8,6 +8,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <iphlpapi.h>
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <wrl/client.h>
@@ -30,6 +31,7 @@
 #include <vector>
 
 #pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "iphlpapi.lib")
 
 using Microsoft::WRL::ComPtr;
 
@@ -113,6 +115,40 @@ Args ParseArgs(int argc, char** argv) {
     return a;
 }
 
+// Enumerates local IPv4 addresses on up adapters and prints them with the
+// listening port. The socket itself is bound to INADDR_ANY, so any of these
+// addresses (plus loopback) will receive packets.
+void PrintListeningAddresses(int port) {
+    ULONG bufSize = 0;
+    const ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST
+                      | GAA_FLAG_SKIP_DNS_SERVER;
+    GetAdaptersAddresses(AF_INET, flags, nullptr, nullptr, &bufSize);
+    if (!bufSize) { std::printf("  0.0.0.0:%d\n", port); return; }
+
+    std::vector<char> buf(bufSize);
+    auto* first = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buf.data());
+    if (GetAdaptersAddresses(AF_INET, flags, nullptr, first, &bufSize) != NO_ERROR) {
+        std::printf("  0.0.0.0:%d\n", port);
+        return;
+    }
+
+    bool any = false;
+    for (auto* a = first; a; a = a->Next) {
+        if (a->OperStatus != IfOperStatusUp) continue;
+        for (auto* u = a->FirstUnicastAddress; u; u = u->Next) {
+            if (!u->Address.lpSockaddr
+                || u->Address.lpSockaddr->sa_family != AF_INET) continue;
+            auto* sin = reinterpret_cast<sockaddr_in*>(u->Address.lpSockaddr);
+            char ip[INET_ADDRSTRLEN] = {};
+            inet_ntop(AF_INET, &sin->sin_addr, ip, sizeof(ip));
+            std::printf("  %s:%d  (%ls)\n", ip, port,
+                        a->FriendlyName ? a->FriendlyName : L"");
+            any = true;
+        }
+    }
+    if (!any) std::printf("  0.0.0.0:%d\n", port);
+}
+
 struct FrameAssembly {
     uint32_t             frameSize    = 0;
     uint16_t             totalPackets = 0;
@@ -160,6 +196,9 @@ int main(int argc, char** argv) {
         WSACleanup();
         return 1;
     }
+
+    std::printf("Listening on UDP port %d, reachable on:\n", args.listenPort);
+    PrintListeningAddresses(args.listenPort);
 
     try {
         // --- D3D12 ---
